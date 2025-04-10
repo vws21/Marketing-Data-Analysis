@@ -143,7 +143,7 @@ plt.xlabel("Email Body Length (Characters)")
 plt.ylabel("Unique Open Rate")
 plt.title("Email Length vs Unique Open Rate")
 plt.grid(True)
-plt.savefig("/Users/nikhitavysyaraju/Downloads/INFSC 1740/email_length_vs_open_rate.png")
+plt.savefig("analysis/email_length_vs_open_rate.png")
 plt.close()
 
 plt.figure(figsize=(8, 6))
@@ -152,7 +152,7 @@ plt.xlabel("Email Body Length (Characters)")
 plt.ylabel("Unique Click Rate")
 plt.title("Email Length vs Unique Click Rate")
 plt.grid(True)
-plt.savefig("/Users/nikhitavysyaraju/Downloads/INFSC 1740/email_length_vs_click_rate.png")
+plt.savefig("analysis/email_length_vs_click_rate.png")
 plt.close()
 
 
@@ -216,7 +216,7 @@ plt.ylabel("Average Unique Open Rate")
 plt.title("Average Open Rate by Email Topic")
 plt.xticks(rotation=45)
 plt.tight_layout()
-plt.savefig("/Users/nikhitavysyaraju/Downloads/INFSC 1740/open_rate_by_topic.png")
+plt.savefig("analysis/open_rate_by_topic.png")
 plt.close()
 
 # Bar chart for Click Rate by Topic
@@ -227,5 +227,119 @@ plt.ylabel("Average Unique Click Rate")
 plt.title("Average Click Rate by Email Topic")
 plt.xticks(rotation=45)
 plt.tight_layout()
-plt.savefig("/Users/nikhitavysyaraju/Downloads/INFSC 1740/click_rate_by_topic.png")
+plt.savefig("analysis/click_rate_by_topic.png")
 plt.close()
+
+
+# ANALYSIS FOR: What is the engagement of emails that have no personalization fields vs. 1, 2, or more personalization fields? 
+# (Exclude Information Session emails in this analysis)
+# Define the sheets that include full email bodies
+body_sheets = [
+    'Admit Emails (Current)',
+    'Single Send (Content)',
+    'Prospect Emails (Current)'
+]
+
+# Load those sheets
+body_dataframes = {sheet: xls.parse(sheet) for sheet in body_sheets}
+
+# Define the personalization field keywords again
+personalization_keywords = ["first name", "last name", "program", "degree", "email", "location", "school"]
+
+# Helper function to count personalization fields in an email
+def count_personalization_fields(text):
+    text = str(text).lower()
+    return sum(1 for keyword in personalization_keywords if keyword in text)
+
+# Process data and collect for analysis, excluding "Info Session (Current)"
+personalization_records = []
+
+for sheet in body_sheets:
+    if sheet == "Info Session (Current)":
+        continue  # Skip Info Session
+    df = body_dataframes[sheet]
+    if "Key" in df.columns and "Email Body Text" in df.columns:
+        df = df.dropna(subset=["Key", "Email Body Text"])
+        df["Key"] = df["Key"].astype(str).str.strip().astype(int)
+        df["Personalization Count"] = df["Email Body Text"].apply(count_personalization_fields)
+        df["Body Source"] = sheet
+        personalization_records.append(df[["Key", "Personalization Count", "Body Source"]])
+
+# Combine all personalization info
+personalization_df = pd.concat(personalization_records, ignore_index=True)
+
+# Load engagement info again from previously used sheets
+engagement_sheets = ['Prospect Journey BY EMAIL', 'Admit Journey BY EMAIL', 'Single Send BY EMAIL']
+engagement_info = []
+
+for sheet in engagement_sheets:
+    df = dataframes[sheet]
+    if "Key" in df.columns and "Unique Open Rate" in df.columns and "Unique Click Rate" in df.columns:
+        df = df.dropna(subset=["Key", "Unique Open Rate", "Unique Click Rate"])
+        df["Key"] = df["Key"].astype(str).str.strip().astype(int)
+        df["Engagement Source"] = sheet
+        df["Unique Open Rate"] = pd.to_numeric(df["Unique Open Rate"], errors="coerce")
+        df["Unique Click Rate"] = pd.to_numeric(df["Unique Click Rate"], errors="coerce")
+        engagement_info.append(df[["Key", "Unique Open Rate", "Unique Click Rate", "Engagement Source"]])
+
+# Combine engagement data
+engagement_df = pd.concat(engagement_info, ignore_index=True)
+
+# Merge with personalization data on Key
+merged_df = pd.merge(personalization_df, engagement_df, on="Key", how="inner")
+
+# Group personalization counts into bins (0, 1, 2, 3+)
+def categorize_fields(n):
+    if n == 0:
+        return "0"
+    elif n == 1:
+        return "1"
+    elif n == 2:
+        return "2"
+    else:
+        return "3+"
+
+merged_df["Personalization Group"] = merged_df["Personalization Count"].apply(categorize_fields)
+
+# Aggregate average engagement by personalization group
+personalization_summary = merged_df.groupby("Personalization Group")[["Unique Open Rate", "Unique Click Rate"]].mean().reset_index()
+
+print(personalization_summary)
+
+# Drop any rows with NaNs in engagement or personalization for correlation analysis
+merged_clean_df = merged_df.dropna(subset=["Personalization Count", "Unique Open Rate", "Unique Click Rate"])
+
+# Calculate Pearson correlations
+open_corr = merged_clean_df["Personalization Count"].corr(merged_clean_df["Unique Open Rate"])
+click_corr = merged_clean_df["Personalization Count"].corr(merged_clean_df["Unique Click Rate"])
+
+open_corr, click_corr
+
+print("\n=== Correlation Between Personalizaiton and Engagement ===")
+print(f"Correlation between Number of Personalization Fields and Unique Open Rate: {open_corr:.4f}")
+print(f"Correlation between Number of Personalization Fields and Unique Click Rate: {click_corr:.4f}")
+
+# Bar chart: Average Unique Open Rate by Personalization Group
+plt.figure(figsize=(8, 6))
+plt.bar(personalization_summary["Personalization Group"], personalization_summary["Unique Open Rate"])
+plt.xlabel("Number of Personalization Fields")
+plt.ylabel("Average Unique Open Rate")
+plt.title("Open Rate by Number of Personalization Fields")
+plt.grid(True, axis='y')
+plt.tight_layout()
+plt.savefig("analysis/open_rate_by_personalization.png")
+plt.close()
+
+# Bar chart: Average Unique Click Rate by Personalization Group
+plt.figure(figsize=(8, 6))
+plt.bar(personalization_summary["Personalization Group"], personalization_summary["Unique Click Rate"], color='orange')
+plt.xlabel("Number of Personalization Fields")
+plt.ylabel("Average Unique Click Rate")
+plt.title("Click Rate by Number of Personalization Fields")
+plt.grid(True, axis='y')
+plt.tight_layout()
+plt.savefig("analysis/click_rate_by_personalization.png")
+plt.close()
+
+# Return the paths to the saved plots
+["analysis/open_rate_by_personalization.png", "analysis/click_rate_by_personalization.png"]

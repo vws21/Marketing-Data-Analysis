@@ -1,8 +1,10 @@
 import pandas as pd
+import openpyxl
+from xlsxwriter import Workbook
 
 # load the Excel file
-file_path = "/Users/nikhitavysyaraju/Downloads/INFSC 1740/data/Marketing Analysis Data.xlsx"
-output_excel = "/Users/nikhitavysyaraju/Downloads/INFSC 1740/data/Updated_Marketing_Analysis.xlsx"
+file_path = "data cleaning/Marketing Analysis Data.xlsx" 
+output_excel = "data cleaning/Updated_Marketing_Analysis.xlsx"
 
 # read all sheets
 sheets = pd.read_excel(file_path, sheet_name=None)

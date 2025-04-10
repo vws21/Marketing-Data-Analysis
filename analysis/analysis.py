@@ -45,8 +45,8 @@ engagement_df = pd.concat(engagement_data, ignore_index=True)
 engagement_df["Unique Open Rate"] = pd.to_numeric(engagement_df["Unique Open Rate"], errors="coerce")
 engagement_df["Unique Click Rate"] = pd.to_numeric(engagement_df["Unique Click Rate"], errors="coerce")
 
-open_rate_plot_path = "/Users/nikhitavysyaraju/Downloads/INFSC 1740/subject_length_vs_open_rate.png"
-click_rate_plot_path = "/Users/nikhitavysyaraju/Downloads/INFSC 1740/subject_length_vs_click_rate.png"
+open_rate_plot_path = "analysis/nikhita graphs/subject_length_vs_open_rate.png"
+click_rate_plot_path = "analysis/nikhita graphs/subject_length_vs_click_rate.png"
 
 # Scatter plot for subject length vs unique open rate
 plt.figure(figsize=(8, 6))
@@ -143,7 +143,7 @@ plt.xlabel("Email Body Length (Characters)")
 plt.ylabel("Unique Open Rate")
 plt.title("Email Length vs Unique Open Rate")
 plt.grid(True)
-plt.savefig("analysis/email_length_vs_open_rate.png")
+plt.savefig("analysis/nikhita graphs/email_length_vs_open_rate.png")
 plt.close()
 
 plt.figure(figsize=(8, 6))
@@ -152,7 +152,7 @@ plt.xlabel("Email Body Length (Characters)")
 plt.ylabel("Unique Click Rate")
 plt.title("Email Length vs Unique Click Rate")
 plt.grid(True)
-plt.savefig("analysis/email_length_vs_click_rate.png")
+plt.savefig("analysis/nikhita graphs/email_length_vs_click_rate.png")
 plt.close()
 
 
@@ -216,7 +216,7 @@ plt.ylabel("Average Unique Open Rate")
 plt.title("Average Open Rate by Email Topic")
 plt.xticks(rotation=45)
 plt.tight_layout()
-plt.savefig("analysis/open_rate_by_topic.png")
+plt.savefig("analysis/nikhita graphs/open_rate_by_topic.png")
 plt.close()
 
 # Bar chart for Click Rate by Topic
@@ -227,7 +227,7 @@ plt.ylabel("Average Unique Click Rate")
 plt.title("Average Click Rate by Email Topic")
 plt.xticks(rotation=45)
 plt.tight_layout()
-plt.savefig("analysis/click_rate_by_topic.png")
+plt.savefig("analysis/nikhita graphs/click_rate_by_topic.png")
 plt.close()
 
 
@@ -327,7 +327,7 @@ plt.ylabel("Average Unique Open Rate")
 plt.title("Open Rate by Number of Personalization Fields")
 plt.grid(True, axis='y')
 plt.tight_layout()
-plt.savefig("analysis/open_rate_by_personalization.png")
+plt.savefig("analysis/nikhita graphs/open_rate_by_personalization.png")
 plt.close()
 
 # Bar chart: Average Unique Click Rate by Personalization Group
@@ -338,8 +338,5 @@ plt.ylabel("Average Unique Click Rate")
 plt.title("Click Rate by Number of Personalization Fields")
 plt.grid(True, axis='y')
 plt.tight_layout()
-plt.savefig("analysis/click_rate_by_personalization.png")
+plt.savefig("analysis/nikhita graphs/click_rate_by_personalization.png")
 plt.close()
-
-# Return the paths to the saved plots
-["analysis/open_rate_by_personalization.png", "analysis/click_rate_by_personalization.png"]

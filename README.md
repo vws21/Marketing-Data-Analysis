@@ -1,4 +1,4 @@
-Navigating Marketing Data Analysis GitHub
+# Navigating Marketing Data Analysis GitHub
 
 ### Analysis Folder
 #### analysis.py

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 
 # load the new Excel workbook
-file_path = "/Users/nikhitavysyaraju/Downloads/INFSC 1740/Cleaned_Updated_Marketing_Data.xlsx"
+file_path = "Cleaned_Updated_Marketing_Data.xlsx"
 xls = pd.ExcelFile(file_path)
 
 # ANALYSIS FOR: What is the engagement of longer vs shorter subject lines?

@@ -161,13 +161,60 @@ def task3(excel_file, sheet_name_placeholder):
         "percentage_of_two_thirds_over_first": percentage_2_3
     }
 
+def task4(excel_file, sheet_name_placeholder):
+    """
+    TASK 4:
+        1. Identical in execution to task 3
+    """
+    df_raw = pd.read_excel(
+        excel_file,
+        sheet_name=sheet_name_placeholder,
+        header=0,
+        skiprows=1,
+        nrows=91
+    )
+
+    df_sub = df_raw.iloc[:, [1, 4]].copy()
+    df_sub.columns = ['sub_list_id', 'count']
+
+    grouped = df_sub.groupby('sub_list_id')
+
+    sum_of_half = 0
+    sum_of_first = 0
+    half_dict = {}
+
+    for sub_list_id, group_data in grouped:
+        n = len(group_data)
+        idx_1b = math.ceil(0.5 * n)
+        idx_0b = idx_1b - 1
+
+        # "1/2" sub-count
+        half_count = group_data.iloc[idx_0b]['count']
+        half_dict[sub_list_id] = half_count
+        sum_of_half += half_count
+
+        # "First" sub-count
+        first_count = group_data.iloc[0]['count']
+        sum_of_first += first_count
+
+    percentage_half = 0
+    if sum_of_first != 0:
+        percentage_half = (sum_of_half / sum_of_first) * 100
+
+    return {
+        "half_dict_per_sublist": half_dict,
+        "sum_of_half": sum_of_half,
+        "sum_of_first": sum_of_first,
+        "percentage_of_half_over_first": percentage_half
+    }
+
 if __name__ == "__main__":
 
     excel_file = "relevant.xlsx"
     
     # Task 1:
-    sheet_task1 = "Prospect Journey BY EMAIL"
-    results_task1 = task1(excel_file, sheet_task1)
+    sheet1 = "Prospect Journey BY EMAIL"
+    results_task1 = task1(excel_file, sheet1)
     print("\nTASK 1:")
     print("---------------")
     print(f"\nSum of 2/3 counts = {results_task1['sum_of_two_thirds']}")
@@ -175,7 +222,7 @@ if __name__ == "__main__":
     print(f"Percentage (2/3 sum over first sum) = {results_task1['percentage_of_two_thirds_over_first']:.2f}%")
 
     # Task 2:
-    results_task2 = task2(excel_file, sheet_task1)
+    results_task2 = task2(excel_file, sheet1)
     print("\nTASK 2:")
     print("---------------")
     print(f"\nAccepted recipients = {results_task2['accepted_count']}")
@@ -186,10 +233,19 @@ if __name__ == "__main__":
     print(f"Final percent = {results_task2['final_percent_of_percent']:.2f}%")
 
     # Task 3:
-    sheet_task3 = "Admit Journey BY EMAIL"
-    results_task3 = task3(excel_file, sheet_task3)
+    sheet2 = "Admit Journey BY EMAIL"
+    results_task3 = task3(excel_file, sheet2)
     print("\nTASK 3:")
     print("---------------")
     print(f"\nSum of 2/3 counts = {results_task3['sum_of_two_thirds']}")
     print(f"Sum of first-entry counts = {results_task3['sum_of_first']}")
     print(f"Percentage (2/3 sum over first sum) = {results_task3['percentage_of_two_thirds_over_first']:.2f}%")
+
+    # Task 4:
+    results_t4 = task4(excel_file, sheet2)
+    print("\nTASK 4:")
+    print("---------------")
+    print(f"Sum of 1/2 counts = {results_t4['sum_of_half']}")
+    print(f"Sum of first-entry counts = {results_t4['sum_of_first']}")
+    print(f"Percentage (1/2 sum over first-entry sum) = {results_t4['percentage_of_half_over_first']:.2f}%")
+    

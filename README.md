@@ -12,7 +12,7 @@ To run any of our code, copy this repository to your local computer.
 
 
 ### Analysis Folder
-#### Nikhita folder
+#### Nikhita Folder
   This folder contains all the graphs produced by analysis.py.
     These are the questions answered in this file:
   - What is the engagement of longer vs shorter subject lines?
@@ -25,6 +25,11 @@ This folder contains find.py.
  These are the questions answered in this file:
  - What percentage of students receive all or most of the emails in the Prospective Student journey? What percentage of students receive >50% of the Prospective Student emails before progressing to the Applicant stage? 
  -  What percentage of students receive all or most of the emails that are in the Admitted/Matriculated journeys? What percentage of students receive >50% of these emails before enrolling or withdrawing (thereby being removed from the email list?)
+
+#### Vince Folder
+  This folder contains charts and multiple .py files to answer the following questions:
+  -  With metrics such as open rates, click-through rates, and read times, which emails are opened and/or engaged with the most, and in what ways? (topEmails.py)
+  -  What are student’s preferences for timing, frequency, topic, length, etc., of emails? Is this preference different based on stage? (timingPref.py, topicPrev.py, lengthPref.py)
 
 ### Data Cleaning Folder
   This folder contains market_data_split.py which is how we used Python to clean our dataset. 

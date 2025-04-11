@@ -1,0 +1,1176 @@
+---
+title: "capstone"
+author: "Hafsah Shahzad"
+date: "2025-03-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl) #read excel sheets
+library(dplyr) #data manipulation
+library(ggplot2) #visualization
+library(tidytext) #NLP analysis
+library(lubridate) #convert char strings
+library(purrr)
+library(tidyr)   # for fill() and pivot_wider() 
+```
+
+```{r}
+#file path
+file_path <- "../../datasets/Cleaned_Updated_Marketing_Data.xlsx"
+
+#getting sheet names
+sheet_names <- excel_sheets(file_path)
+print(sheet_names)
+```
+
+```{r}
+# importing all sheets as data frames
+df_list <- setNames(lapply(sheet_names, function(sheet) {
+  read_excel(file_path, sheet = sheet, col_names = FALSE) %>%
+    mutate(across(where(is.character), as.character),
+           across(where(is.numeric), as.numeric))
+}), sheet_names)
+```
+
+## Summary data
+
+```{r}
+prospect_summary <- df_list[["Prospect Journey Summary"]]
+colnames(prospect_summary) <- c("metric", "value") 
+prospect_summary <- prospect_summary %>%
+  mutate(journey = if_else(metric == "Journey Name", as.character(value), NA_character_)) %>%
+  fill(journey) %>%                  # fill down the journey names
+  filter(metric != "Journey Name")    # remove the rows that listed the journey name 
+
+prospect_summary_wide <- prospect_summary %>%
+  pivot_wider(names_from = metric, values_from = value) %>%
+  mutate(across(-journey, 
+                ~as.numeric(gsub("%|,", "", .x)), 
+                # Remove % and comma characters before conversion
+                .names = "{.col}"))
+
+head(prospect_summary_wide)
+```
+
+```{r}
+# Convert to long format for easier plotting
+prospect_long <- prospect_summary_wide %>%
+  pivot_longer(cols = -journey, 
+               names_to = "metric", 
+               values_to = "value") %>%
+  # Group metrics into categories
+  mutate(metric_type = case_when(
+    grepl("Rate", metric) ~ "Rate Metrics",
+    grepl("Bounce", metric) ~ "Bounce Metrics",
+    grepl("Open", metric) ~ "Engagement Metrics",
+    grepl("Click|Unsubscribe|Conversion", metric) ~ "Conversion Metrics",
+    TRUE ~ "Volume Metrics"
+  ))
+
+# For rate metrics (already normalized)
+ggplot(filter(prospect_long, grepl("Rate", metric)), 
+       aes(x = metric, y = value, fill = journey)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Comparison of Rate Metrics Across Journeys",
+       y = "Rate", x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# Calculate percentages of total sent for each journey
+normalized_metrics <- prospect_summary_wide %>%
+  mutate(across(-c(journey, `Total Sent`, matches("Rate")), 
+                ~.x/`Total Sent`, 
+                .names = "{.col}_norm"))
+
+# Plot normalized metrics
+normalized_long <- normalized_metrics %>%
+  select(journey, ends_with("_norm")) %>%
+  pivot_longer(cols = -journey, 
+               names_to = "metric", 
+               values_to = "percentage") %>%
+  mutate(metric = gsub("_norm", "", metric))
+
+ggplot(normalized_long, aes(x = metric, y = percentage, fill = journey)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Metrics as Percentage of Total Sent",
+       y = "Percentage of Total Sent", x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# Funnel metrics in sequence
+funnel_metrics <- c("Total Sent", "Total Delivered", "Total Opens", 
+                    "Unique Opens", "Total Clicks", "Unique Clicks", "Total Converions")
+
+funnel_data <- prospect_summary_wide %>%
+  select(journey, all_of(funnel_metrics)) %>%
+  pivot_longer(cols = -journey, 
+               names_to = "stage", 
+               values_to = "count") %>%
+  mutate(stage = factor(stage, levels = funnel_metrics))
+
+ggplot(funnel_data, aes(x = stage, y = count, fill = journey, group = journey)) +
+  geom_line(aes(color = journey), size = 1) +
+  geom_point(size = 3) +
+  facet_wrap(~journey, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Email Marketing Funnel by Journey",
+       y = "Count", x = "Funnel Stage") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Prospect Journey BY EMAIL
+
+```{r}
+# Extract the Prospect Journey BY EMAIL sheet
+prospect_by_email <- df_list[["Prospect Journey BY EMAIL"]]
+
+# Set the first row as column names
+colnames(prospect_by_email) <- as.character(unlist(prospect_by_email[1,]))
+
+# Remove the first row which is now the header
+prospect_by_email <- prospect_by_email[-1,]
+
+# Clean up the data - convert metrics to numeric
+prospect_by_email <- prospect_by_email %>%
+  mutate(across(c("Key", "Version", "Total Sent", "Total Delivered", "Total Bounces",
+                 "Total Soft Bounces", "Total Hard Bounces", "Total Block Bounces",
+                 "Total Opens", "Unique Opens", "Total Unique Mobile Opens",
+                 "Total Clicks", "Unique Clicks", "Total Unsubscribes", "Total Conversions"), 
+                as.numeric),
+         across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                 "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                 "Unique Click Rate", "Unsubscribe Rate", "Conversion Rate"),
+                ~as.numeric(gsub("%", "", .x))),
+         `Email Name` = as.character(`Email Name`))
+```
+
+
+```{r}
+# Look at the first few rows
+head(prospect_by_email)
+```
+
+```{r}
+# Create a long-format data for engagement metrics
+engagement_metrics <- prospect_by_email %>%
+  select(`Email Name`, `Unique Open Rate`, `Unique Click Rate`, 
+         `Conversion Rate`, `Unsubscribe Rate`) %>%
+  pivot_longer(cols = -`Email Name`, 
+               names_to = "Metric", 
+               values_to = "Rate") %>%
+  # Group metrics into categories with similar scales
+  mutate(Metric_Group = case_when(
+    Metric %in% c("Unique Open Rate") ~ "Open Rates (0-150%)",
+    Metric %in% c("Unique Click Rate") ~ "Click Rates (0-20%)",
+    Metric %in% c("Converion Rate") ~ "Conversion Rates (0-1%)",
+    Metric %in% c("Unsubscribe Rate") ~ "Unsubscribe Rates (0-5%)"
+  ))
+
+# Create the faceted visualization with free y scales
+ggplot(engagement_metrics, aes(x = `Email Name`, y = Rate, fill = Metric)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ Metric_Group, scales = "free_y") +  # Separate facet for each metric type with its own scale
+  theme_minimal() +
+  labs(title = "Email Performance Metrics",
+       subtitle = "Each metric shown on its appropriate scale",
+       x = "", y = "Rate (%)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background = element_rect(fill = "lightblue"),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold")) +
+  scale_fill_brewer(palette = "Set2")
+```
+
+h
+```{r}
+# 1. Engagement Metrics (Open Rates, Click Rates)
+ggplot(filter(prospect_long, metric_type == "Engagement Metrics"),
+       aes(x = metric, y = value, fill = journey)) + 
+  geom_col(position = "dodge") + 
+  theme_minimal() +
+  labs(title = "Email Engagement Across Journeys", y = "Rate", x = "Engagement Metric") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 2. Bounce Metrics (Hard Bounces, Soft Bounces)
+ggplot(filter(prospect_long, metric_type == "Bounce Metrics"),
+       aes(x = metric, y = value, fill = journey)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Email Bounce Rates Across Journeys",
+       y = "Rate", x = "Bounce Metric") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# 3. Conversion and Unsubscribe Trends
+ggplot(filter(prospect_long, metric_type == "Conversion Metrics"),
+       aes(x = metric, y = value, fill = journey)) +
+  geom_col(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Conversion and Unsubscribe Rates Across Journeys", 
+       y = "Rate", x = "Metric") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r prospect_journey_summary_parsing, echo=TRUE}
+# Parse and clean the Prospect Journey Summary data
+prospect_summary_raw <- df_list[["Prospect Journey Summary"]]
+# Expect two columns (metric and value). The journey name is embedded in the metric column.
+if(!is.null(prospect_summary_raw) && ncol(prospect_summary_raw) >= 2){
+  colnames(prospect_summary_raw) <- c("metric", "value")
+  
+  # Create a journey id by marking rows where metric equals "Journey Name",
+  # then fill down and remove the header rows
+  prospect_summary <- prospect_summary_raw %>%
+    mutate(journey = if_else(metric == "Journey Name", as.character(value), NA_character_)) %>%
+    tidyr::fill(journey) %>%
+    filter(metric != "Journey Name") %>%
+    mutate(value = as.numeric(gsub("[% ,]", "", value)))  # remove % and commas then convert
+  
+  # Pivot to wide format so each journey is a row and metrics become columns.
+  prospect_summary_wide <- prospect_summary %>%
+    tidyr::pivot_wider(names_from = metric, values_from = value)
+  
+  print(head(prospect_summary_wide))
+} else {
+  warning("Prospect Journey Summary data is missing or misformatted.")
+}
+```
+
+```{r prospect_journey_by_email_parsing, echo=TRUE}
+prospect_by_email_raw <- df_list[["Prospect Journey BY EMAIL"]]
+if(!is.null(prospect_by_email_raw) && nrow(prospect_by_email_raw) > 1) {
+  # Set the first row as header and remove it from the data
+  colnames(prospect_by_email_raw) <- as.character(unlist(prospect_by_email_raw[1,]))
+  prospect_by_email <- prospect_by_email_raw[-1, ]
+  
+  # Convert key metric columns to numeric and remove any extraneous characters from percent fields.
+  prospect_by_email <- prospect_by_email %>%
+    mutate(across(c("Key", "Version", "Total Sent", "Total Delivered", 
+                    "Total Bounces", "Total Soft Bounces", "Total Hard Bounces", 
+                    "Total Block Bounces", "Total Opens", "Unique Opens", 
+                    "Total Unique Mobile Opens", "Total Clicks", "Unique Clicks", 
+                    "Total Unsubscribes", "Total Conversions"),
+                  ~ as.numeric(.)),
+           across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                    "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                    "Unique Click Rate", "Unsubscribe Rate", "Conversion Rate"),
+                  ~ as.numeric(gsub("%", "", .))))
+  
+  print(head(prospect_by_email))
+} else {
+  warning("Prospect Journey BY EMAIL sheet is empty or missing.")
+}
+```
+
+```{r prospect_emails_current_parsing, echo=TRUE}
+prospect_emails_current <- df_list[["Prospect Emails (Current)"]]
+# If the header has not been properly set, assume the first row contains header info:
+if(is.null(names(prospect_emails_current)) || any(names(prospect_emails_current) == "")){
+  colnames(prospect_emails_current) <- as.character(unlist(prospect_emails_current[1,]))
+  prospect_emails_current <- prospect_emails_current[-1, ]
+}
+# Convert any metric columns to numeric (example: Total Clicks, Unique Clicks, Net CTR, etc.)
+numeric_cols <- grep("Total Clicks|Unique Clicks|Net CTR", names(prospect_emails_current), value = TRUE)
+prospect_emails_current <- prospect_emails_current %>%
+  mutate(across(all_of(numeric_cols), ~ as.numeric(.)))
+print(head(prospect_emails_current))
+```
+
+```{r prospect_data_parsing, echo=TRUE}
+prospect_data <- df_list[["Prospect Data - 2023 to 2025"]]
+if(!is.null(prospect_data) && ncol(prospect_data) >= 4) {
+  prospect_data <- prospect_data %>%
+    mutate(across(everything(), ~ ifelse(. == "" , NA, .))) %>%
+    mutate('Student entered Prospect journey' = lubridate::ymd_hms('Student entered Prospect journey', quiet = TRUE))
+  print(head(prospect_data))
+} else {
+  warning("Prospect Data - 2023 to 2025 sheet is missing or misformatted.")
+}
+```
+
+```{r admit_journey_summary_parsing, echo=TRUE}
+admit_summary_raw <- df_list[["Admit Journey Summary"]]
+if(!is.null(admit_summary_raw) && ncol(admit_summary_raw) >= 2){
+  colnames(admit_summary_raw) <- c("metric", "value")
+  
+  # Create journey grouping the same way as before.
+  admit_summary <- admit_summary_raw %>%
+    mutate(journey = if_else(metric == "Journey Name", as.character(value), NA_character_)) %>%
+    tidyr::fill(journey) %>%
+    filter(metric != "Journey Name") %>%
+    mutate(value = as.numeric(gsub("[% ,]", "", value)))
+  
+  # Pivot into a wide format for comparison purposes.
+  admit_summary_wide <- admit_summary %>%
+    tidyr::pivot_wider(names_from = metric, values_from = value)
+  
+  print(head(admit_summary_wide))
+} else {
+  warning("Admit Journey Summary data is missing or misformatted.")
+}
+```
+
+```{r admit_journey_by_email_parsing, echo=TRUE}
+admit_by_email_raw <- df_list[["Admit Journey BY EMAIL"]]
+if(!is.null(admit_by_email_raw) && nrow(admit_by_email_raw) > 1) {
+  colnames(admit_by_email_raw) <- as.character(unlist(admit_by_email_raw[1,]))
+  admit_by_email <- admit_by_email_raw[-1, ]
+  
+  admit_by_email <- admit_by_email %>%
+    mutate(across(c("Key", "Version", "Total Sent", "Total Delivered"),
+                  ~ as.numeric(.)),
+           across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                    "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                    "Unique Click Rate"),
+                  ~ as.numeric(gsub("%", "", .))))
+  
+  print(head(admit_by_email))
+} else {
+  warning("Admit Journey BY EMAIL sheet is empty or missing.")
+}
+```
+
+```{r admit_emails_current_parsing, echo=TRUE}
+admit_emails_current <- df_list[["Admit Emails (Current)"]]
+if(is.null(names(admit_emails_current)) || any(names(admit_emails_current) == "")){
+  colnames(admit_emails_current) <- as.character(unlist(admit_emails_current[1,]))
+  admit_emails_current <- admit_emails_current[-1, ]
+}
+# Convert common metric columns to numeric
+numeric_cols <- grep("Total Clicks|Unique Clicks|Net CTR", names(admit_emails_current), value = TRUE)
+admit_emails_current <- admit_emails_current %>%
+  mutate(across(all_of(numeric_cols), ~ as.numeric(.)))
+print(head(admit_emails_current))
+```
+
+```{r admit_data_parsing, echo=TRUE}
+admit_data <- df_list[["Admit Data - 2023 to 2025"]]
+if(!is.null(admit_data) && ncol(admit_data) >= 5) {
+  admit_data <- admit_data %>%
+    mutate(across(everything(), ~ ifelse(. == "" , NA, .))) %>%
+    mutate('Student entered Prospect journey' = lubridate::ymd_hms('Student entered Prospect journey', quiet = TRUE),
+           'Student entered Admitted journey' = lubridate::ymd_hms('Student entered Admitted journey', quiet = TRUE))
+  print(head(admit_data))
+} else {
+  warning("Admit Data - 2023 to 2025 sheet is missing or misformatted.")
+}
+```
+
+```{r info_session_summary_parsing, echo=TRUE}
+info_session_summary_raw <- df_list[["Info Session Summary"]]
+if(!is.null(info_session_summary_raw) && ncol(info_session_summary_raw) >= 2){
+  colnames(info_session_summary_raw) <- c("metric", "value")
+  info_session_summary <- info_session_summary_raw %>%
+    mutate(journey = if_else(metric == "Journey Name", as.character(value), NA_character_)) %>%
+    tidyr::fill(journey) %>%
+    filter(metric != "Journey Name") %>%
+    mutate(value = as.numeric(gsub("[% ,]", "", value)))
+  
+  info_session_summary_wide <- info_session_summary %>%
+    tidyr::pivot_wider(names_from = metric, values_from = value)
+  
+  print(head(info_session_summary_wide))
+} else {
+  warning("Info Session Summary data is missing or misformatted.")
+}
+```
+
+```{r info_session_by_email_parsing, echo=TRUE}
+info_session_by_email_raw <- df_list[["Info Session BY EMAIL"]]
+if(!is.null(info_session_by_email_raw) && nrow(info_session_by_email_raw) > 1) {
+  colnames(info_session_by_email_raw) <- as.character(unlist(info_session_by_email_raw[1,]))
+  info_session_by_email <- info_session_by_email_raw[-1, ]
+  
+  info_session_by_email <- info_session_by_email %>%
+    mutate(across(c("Key", "Version", "Total Sent", "Total Delivered"),
+                  ~ as.numeric(.)),
+           across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                    "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                    "Unique Click Rate", "Unsubscribe Rate", "Conversion Rate"),
+                  ~ as.numeric(gsub("%", "", .))))
+  print(head(info_session_by_email))
+} else {
+  warning("Info Session BY EMAIL sheet is empty or missing.")
+}
+```
+
+```{r info_session_emails_current_parsing, echo=TRUE}
+info_session_current <- df_list[["Info Session (Current)"]]
+if(is.null(names(info_session_current)) || any(names(info_session_current) == "")){
+  colnames(info_session_current) <- as.character(unlist(info_session_current[1,]))
+  info_session_current <- info_session_current[-1, ]
+}
+numeric_cols <- grep("Total Clicks|Unique Clicks|Net CTR", names(info_session_current), value = TRUE)
+info_session_current <- info_session_current %>%
+  mutate(across(all_of(numeric_cols), ~ as.numeric(.)))
+print(head(info_session_current))
+```
+
+```{r single_send_summary_parsing, echo=TRUE}
+single_send_summary <- df_list[["Single Send Summary"]]
+if(!is.null(single_send_summary)){
+  single_send_summary <- single_send_summary %>%
+    mutate(across(everything(), ~ ifelse(.=="" , NA, .))) %>%
+    mutate('Date and Time Sent' = lubridate::ymd_hms('Date and Time Sent', quiet = TRUE),
+           'Emails Sent' = as.numeric('Emails Sent'),
+           'Unique Click-Through Rate' = as.numeric('Unique Click-Through Rate'),
+           'Open Rate' = as.numeric('Open Rate'),
+           'Deliverability Rate' = as.numeric('Deliverability Rate'))
+  print(head(single_send_summary))
+} else {
+  warning("Single Send Summary sheet is missing or misformatted.")
+}
+```
+
+```{r single_send_by_email_parsing, echo=TRUE}
+single_send_by_email <- df_list[["Single Send BY EMAIL"]]
+if(!is.null(single_send_by_email)){
+  single_send_by_email <- single_send_by_email %>%
+    mutate(across(everything(), ~ ifelse(.=="" , NA, .)),
+           `Date/Time Sent` = lubridate::ymd_hms('Date/Time Sent', quiet = TRUE))
+  # Convert sample numeric columns (Total, Unique Clicks, Net CTR etc.)
+  numeric_cols <- grep("Total|Unique Clicks|Net CTR", names(single_send_by_email), value = TRUE)
+  single_send_by_email <- single_send_by_email %>% 
+    mutate(across(all_of(numeric_cols), ~ as.numeric(.)))
+  print(head(single_send_by_email))
+} else {
+  warning("Single Send BY EMAIL sheet is missing or misformatted.")
+}
+```
+
+```{r single_send_content_parsing, echo=TRUE}
+single_send_content <- df_list[["Single Send (Content)"]]
+if(!is.null(single_send_content)){
+  if(is.null(names(single_send_content)) || any(names(single_send_content) == "")){
+    colnames(single_send_content) <- as.character(unlist(single_send_content[1,]))
+    single_send_content <- single_send_content[-1, ]
+  }
+  single_send_content <- single_send_content %>%
+    mutate('Date/Time Sent' = lubridate::ymd_hms('Date/Time Sent', quiet = TRUE)) %>%
+    mutate(across(where(is.factor) | where(is.character), ~ as.character(.)))
+  print(head(single_send_content))
+} else {
+  warning("Single Send (Content) sheet is missing or misformatted.")
+}
+```
+
+```{r journey_subject_keys_parsing, echo=TRUE}
+journey_subject_keys <- df_list[['Journey Subject Keys']]
+if (!is.null(journey_subject_keys)) {
+  # Use the first row as header and then remove it from the data frame.
+  new_names <- as.character(unlist(journey_subject_keys[1, ]))
+  colnames(journey_subject_keys) <- new_names
+  journey_subject_keys <- journey_subject_keys[-1, ]
+  
+  # Convert all columns to character and replace empty strings with NA.
+  journey_subject_keys <- journey_subject_keys %>%
+    mutate(across(everything(), ~ as.character(.))) %>%
+    mutate(across(everything(), ~ ifelse(. == '' , NA, .)))
+  
+  print(head(journey_subject_keys))
+} else {
+  warning('Journey Subject Keys sheet is missing or misformatted.')
+}
+```
+
+# Analysis
+
+## Engagement
+
+```{r top_bottom_by_engagement, echo=TRUE}
+# Ensure Unique Open Rate is numeric
+prospect_by_email <- prospect_by_email %>% 
+  mutate(`Unique Open Rate` = as.numeric(`Unique Open Rate`))
+
+# Rank emails from highest to lowest Unique Open Rate
+email_engagement <- prospect_by_email %>%
+  arrange(desc(`Unique Open Rate`))
+
+print(email_engagement)
+
+top_emails <- head(email_engagement, 5)
+bottom_emails <- tail(email_engagement, 5)
+
+cat("Top 5 Emails by Unique Open Rate:\n")
+print(top_emails %>% select(`Email Name`, `Unique Open Rate`))
+cat("\nBottom 5 Emails by Unique Open Rate:\n")
+print(bottom_emails %>% select(`Email Name`, `Unique Open Rate`))
+```
+
+```{r scatter_open_click, echo=TRUE, fig.height=4, fig.width=6}
+library(ggplot2)
+
+ggplot(prospect_by_email, aes(x = `Unique Open Rate`, y = `Unique Click Rate`, label = `Email Name`)) +
+  geom_point(color="dodgerblue", size = 3, alpha = 0.7) +
+  geom_text(check_overlap = TRUE, hjust = -0.1, vjust = 0.5, size = 3) +
+  theme_minimal() +
+  labs(title = "Unique Open Rate vs Unique Click Rate",
+       x = "Unique Open Rate",
+       y = "Unique Click Rate")
+```
+
+```{r text_analysis_engagement, echo=TRUE}
+library(tidytext)
+
+# Mark emails as High or Low engagement based on the median Unique Open Rate
+engagement_analysis <- prospect_by_email %>%
+  mutate(Engagement_Level = ifelse(`Unique Open Rate` >= median(`Unique Open Rate`, na.rm = TRUE), "High", "Low"))
+
+# Tokenize the Email Name into words and remove common English stop words
+engagement_words <- engagement_analysis %>%
+  unnest_tokens(word, `Email Name`) %>%
+  anti_join(stop_words, by = "word")
+
+# Summarize word counts for high vs low engagement groups
+engagement_summary <- engagement_words %>%
+  group_by(Engagement_Level, word) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  arrange(Engagement_Level, desc(count))
+
+print(engagement_summary)
+```
+
+```{r plot_top_keywords_engagement, echo=TRUE, fig.height=4, fig.width=7}
+library(tidytext)
+
+# Get the top 10 words per engagement level
+top_words <- engagement_summary %>%
+  group_by(Engagement_Level) %>%
+  top_n(10, count) %>%
+  ungroup() %>%
+  # Order words within each facet using tidytext's reorder_within function
+  mutate(word = tidytext::reorder_within(word, count, Engagement_Level))
+
+ggplot(top_words, aes(x = word, y = count, fill = Engagement_Level)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ Engagement_Level, scales = "free_y") +
+  coord_flip() +
+  tidytext::scale_x_reordered() +
+  labs(title = "Top 10 Words in Email Names by Engagement Level", 
+       x = "Word",
+       y = "Count")
+```
+
+## Email Features
+
+```{r email_content_characteristics, echo=TRUE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Get fresh data directly from the Excel sheets
+prospect_emails_raw <- df_list[["Prospect Emails (Current)"]]
+prospect_by_email_raw <- df_list[["Prospect Journey BY EMAIL"]]
+
+# Process emails performance data
+process_by_email <- function(df) {
+  if(is.null(df) || nrow(df) < 2) return(NULL)
+  
+  # Get column names from first row
+  colnames(df) <- as.character(unlist(df[1,]))
+  # Remove the header row
+  df <- df[-1,]
+  
+  # Convert metrics to numeric
+  df <- df %>%
+    mutate(across(c("Key", "Version", "Total Sent", "Total Delivered", "Total Bounces",
+                   "Total Soft Bounces", "Total Hard Bounces", "Total Block Bounces",
+                   "Total Opens", "Unique Opens", "Total Unique Mobile Opens",
+                   "Total Clicks", "Unique Clicks", "Total Unsubscribes", "Total Conversions"),
+                  ~suppressWarnings(as.numeric(as.character(.)))),
+           across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                   "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                   "Unique Click Rate", "Unsubscribe Rate", "Conversion Rate"),
+                  ~suppressWarnings(as.numeric(gsub("%", "", as.character(.))))/100),
+           'Email Name' = as.character(`Email Name`))
+  return(df)
+}
+
+# Process email content data
+process_email_content <- function(df) {
+  if(is.null(df) || nrow(df) < 2) return(NULL)
+  
+  if(all(colnames(df) == paste0("...", 1:ncol(df)))) {
+    colnames(df) <- as.character(unlist(df[1,]))
+    df <- df[-1,]
+  }
+  
+  # Convert to appropriate types and handle missing values
+  df <- df %>%
+    mutate(across(everything(), ~as.character(.)),
+           across(matches("Total Clicks|Unique Clicks|Net CTR"), 
+                  ~suppressWarnings(as.numeric(.))))
+  
+  return(df)
+}
+
+# Process both data frames
+prospect_by_email <- process_by_email(prospect_by_email_raw)
+prospect_emails <- process_email_content(prospect_emails_raw)
+
+# Join email content with performance metrics
+if(!is.null(prospect_emails) && !is.null(prospect_by_email)) {
+  email_content_analysis <- merge(prospect_by_email,
+                         prospect_emails,
+                         by = c("Key", "Email Name"),
+                         all.x = TRUE)
+  
+  # Check for various content characteristics
+  email_content_analysis <- email_content_analysis %>%
+    mutate(has_personalization = grepl("FIRST NAME|%%First_Name%%", `Email Body Text`, ignore.case = TRUE),
+           has_call_to_action = grepl("apply|click|register|learn more|sign up|download", `Email Body Text`, ignore.case = TRUE),
+           has_question = grepl("\\?", `Email Body Text`),
+           has_deadline = grepl("deadline|due date|by|before", `Email Body Text`, ignore.case = TRUE),
+           email_length = ifelse(is.na(`Email Body Text`), NA, nchar(`Email Body Text`)),
+           engagement_level = ifelse(`Unique Open Rate` > median(`Unique Open Rate`, na.rm = TRUE), 
+                                    "High Engagement", "Low Engagement"))
+  
+  # Summarize engagement by content characteristics
+  content_engagement <- email_content_analysis %>%
+    group_by(engagement_level) %>%
+    summarise(
+      emails_count = n(),
+      personalization_pct = mean(has_personalization, na.rm = TRUE) * 100,
+      cta_pct = mean(has_call_to_action, na.rm = TRUE) * 100,
+      question_pct = mean(has_question, na.rm = TRUE) * 100,
+      deadline_pct = mean(has_deadline, na.rm = TRUE) * 100,
+      avg_length = mean(email_length, na.rm = TRUE)
+    )
+  
+  print(content_engagement)
+} else {
+  cat("Unable to analyze email content due to missing or malformed data.\n")
+}
+```
+
+```{r subject_line_analysis, echo=TRUE}
+# Process Journey Subject Keys directly
+journey_keys_raw <- df_list[['Journey Subject Keys']]
+prospect_by_email_raw <- df_list[["Prospect Journey BY EMAIL"]]
+
+# Process subject keys
+process_subject_keys <- function(df) {
+  if(is.null(df) || nrow(df) < 2) return(NULL)
+  
+  # If columns don't have proper names
+  if(all(colnames(df) == paste0("...", 1:ncol(df))) || any(is.na(colnames(df)))) {
+    # Use standard column names
+    colnames(df) <- c("Key", "Journey Name", "Subject Line")[1:ncol(df)]
+  }
+  
+  # Clean data
+  df <- df %>%
+    mutate(across(everything(), ~as.character(.)),
+           Key = suppressWarnings(as.numeric(Key))) %>%
+    filter(!is.na(Key))
+  
+  return(df)
+}
+
+# Process performance data again to ensure independence
+process_by_email <- function(df) {
+  if(is.null(df) || nrow(df) < 2) return(NULL)
+  
+  # Get column names from first row
+  colnames(df) <- as.character(unlist(df[1,]))
+  # Remove the header row
+  df <- df[-1,]
+  
+  # Convert metrics to numeric
+  df <- df %>%
+    mutate(across(c("Key", "Version", "Total Sent", "Total Delivered", "Total Bounces",
+                   "Total Soft Bounces", "Total Hard Bounces", "Total Block Bounces",
+                   "Total Opens", "Unique Opens", "Total Unique Mobile Opens",
+                   "Total Clicks", "Unique Clicks", "Total Unsubscribes", "Total Conversions"),
+                  ~suppressWarnings(as.numeric(as.character(.)))),
+           across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                   "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                   "Unique Click Rate", "Unsubscribe Rate", "Conversion Rate"),
+                  ~suppressWarnings(as.numeric(gsub("%", "", as.character(.))))/100),
+           'Email Name' = as.character(`Email Name`))
+  return(df)
+}
+
+# Apply processing functions
+subject_keys <- process_subject_keys(journey_keys_raw)
+prospect_by_email <- process_by_email(prospect_by_email_raw)
+
+# Analyze subject lines
+if(!is.null(subject_keys) && !is.null(prospect_by_email)) {
+  # Join subject lines with email performance data
+  subject_line_analysis <- merge(subject_keys,
+                                prospect_by_email,
+                                by = "Key",
+                                all.y = TRUE)
+  
+  # Extract subject line characteristics
+  subject_line_analysis <- subject_line_analysis %>%
+    mutate(subject_length = ifelse(is.na(`Subject Line`), NA, nchar(`Subject Line`)),
+           has_question = ifelse(is.na(`Subject Line`), NA, grepl("\\?", `Subject Line`)),
+           has_personalization = ifelse(is.na(`Subject Line`), NA, 
+                                       grepl("%%|FIRST NAME", `Subject Line`, ignore.case = TRUE)),
+           has_urgency = ifelse(is.na(`Subject Line`), NA,
+                               grepl("deadline|now|today|soon|limited|last chance", 
+                                     `Subject Line`, ignore.case = TRUE)),
+           word_count = ifelse(is.na(`Subject Line`), NA, 
+                              lengths(strsplit(`Subject Line`, "\\s+"))))
+  
+  # Compare subject line characteristics for high vs low performing emails
+  subject_line_analysis <- subject_line_analysis %>%
+    mutate(high_engagement = `Unique Open Rate` > median(`Unique Open Rate`, na.rm = TRUE))
+  
+  subject_engagement <- subject_line_analysis %>%
+    group_by(high_engagement) %>%
+    summarise(
+      avg_subject_length = mean(subject_length, na.rm = TRUE),
+      avg_word_count = mean(word_count, na.rm = TRUE),
+      question_pct = mean(has_question, na.rm = TRUE) * 100,
+      personalization_pct = mean(has_personalization, na.rm = TRUE) * 100,
+      urgency_pct = mean(has_urgency, na.rm = TRUE) * 100
+    )
+  
+  print(subject_engagement)
+} else {
+  cat("Unable to analyze subject lines due to missing or malformed data.\n")
+}
+```
+
+```{r content_viz, echo=TRUE, fig.height=5, fig.width=8}
+library(tidyr)
+library(ggplot2)
+
+# Re-process email content data for visualization
+prospect_emails_raw <- df_list[["Prospect Emails (Current)"]]
+prospect_by_email_raw <- df_list[["Prospect Journey BY EMAIL"]]
+
+# Process both data sources again
+process_by_email <- function(df) {
+  if(is.null(df) || nrow(df) < 2) return(NULL)
+  
+  # Get column names from first row
+  colnames(df) <- as.character(unlist(df[1,]))
+  # Remove the header row
+  df <- df[-1,]
+  
+  # Convert metrics to numeric
+  df <- df %>%
+    mutate(across(c("Key", "Version", "Total Sent", "Total Delivered", "Total Bounces",
+                   "Total Soft Bounces", "Total Hard Bounces", "Total Block Bounces",
+                   "Total Opens", "Unique Opens", "Total Unique Mobile Opens",
+                   "Total Clicks", "Unique Clicks", "Total Unsubscribes", "Total Conversions"),
+                  ~suppressWarnings(as.numeric(as.character(.)))),
+           across(c("Delivery Rate", "Bounce Rate", "Soft Bounce Rate", "Hard Bounce Rate",
+                   "Block Bounce Rate", "Unique Open Rate", "Unique Mobile Open Rate",
+                   "Unique Click Rate", "Unsubscribe Rate", "Conversion Rate"),
+                  ~suppressWarnings(as.numeric(gsub("%", "", as.character(.))))/100),
+           'Email Name' = as.character(`Email Name`))
+  return(df)
+}
+
+process_email_content <- function(df) {
+  if(is.null(df) || nrow(df) < 2) return(NULL)
+  
+  if(all(colnames(df) == paste0("...", 1:ncol(df)))) {
+    colnames(df) <- as.character(unlist(df[1,]))
+    df <- df[-1,]
+  }
+  
+  # Convert to appropriate types and handle missing values
+  df <- df %>%
+    mutate(across(everything(), ~as.character(.)),
+           across(matches("Total Clicks|Unique Clicks|Net CTR"), 
+                  ~suppressWarnings(as.numeric(.))))
+  
+  return(df)
+}
+
+prospect_by_email <- process_by_email(prospect_by_email_raw)
+prospect_emails <- process_email_content(prospect_emails_raw)
+
+# Create visualization of content features impact
+if(!is.null(prospect_emails) && !is.null(prospect_by_email)) {
+  # Join email content with performance metrics
+  email_content_analysis <- merge(prospect_by_email,
+                         prospect_emails,
+                         by = c("Key", "Email Name"),
+                         all.x = TRUE)
+  
+  # Check for various content characteristics
+  email_content_analysis <- email_content_analysis %>%
+    mutate(has_personalization = grepl("FIRST NAME|%%First_Name%%", `Email Body Text`, ignore.case = TRUE),
+           has_call_to_action = grepl("apply|click|register|learn more|sign up|download", `Email Body Text`, ignore.case = TRUE),
+           has_question = grepl("\\?", `Email Body Text`),
+           has_deadline = grepl("deadline|due date|by|before", `Email Body Text`, ignore.case = TRUE))
+  
+  # Prepare data for visualization
+  content_viz_data <- email_content_analysis %>%
+    select(has_personalization, has_call_to_action, has_question, has_deadline, 'Unique Open Rate', 'Unique Click Rate') %>%
+    pivot_longer(cols = c(has_personalization, has_call_to_action, has_question, has_deadline),
+                 names_to = "content_feature", 
+                 values_to = "is_present")
+  
+  # Create visualization
+  ggplot(content_viz_data, aes(x = is_present, y = `Unique Open Rate`, fill = content_feature)) +
+    geom_boxplot() +
+    facet_wrap(~ content_feature, scales = "free_x", 
+               labeller = labeller(content_feature = c(
+                 "has_personalization" = "Personalization",
+                 "has_call_to_action" = "Call to Action",
+                 "has_question" = "Question",
+                 "has_deadline" = "Deadline"
+               ))) +
+    labs(title = "Impact of Content Features on Email Open Rates",
+         x = "Feature Present",
+         y = "Unique Open Rate") +
+    theme_minimal() +
+    theme(legend.position = "none")
+} else {
+  cat("Unable to create content visualization due to missing or malformed data.\n")
+}
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+
+# Suppose admit_data_raw is your data frame from Excel (already read in).
+admit_data_raw <- df_list[["Admit Data - 2023 to 2025"]]
+
+# If the first row is header information in lieu of proper column names, remove it.
+if(nrow(admit_data_raw) > 0) {
+  first_row_col4 <- as.character(admit_data_raw[1, 4])
+  if(first_row_col4 == "Student entered Prospect journey") {
+    admit_data_raw <- admit_data_raw[-1, ]
+  }
+}
+
+# Assign standard column names (assumes exactly 5 columns).
+colnames(admit_data_raw) <- c("Student", "Admit Term", "Program/Major Code",
+                              "Student entered Prospect journey",
+                              "Student entered Admitted journey")
+
+# Helper function to convert either numeric (Excel serial) or string-based dates
+convert_excel_or_string <- function(x) {
+  # Try to interpret each element as numeric first; if that succeeds, convert from Excel date serial,
+  # otherwise leave it as-is.
+  suppressWarnings(num_val <- as.numeric(x))  # May produce NAs for non-numerics
+  # Where num_val is not NA, convert that element from Excel date serial.
+  # Otherwise, keep the original text string.
+  out_chr <- ifelse(
+    !is.na(num_val),
+    # Format into "YYYY-mm-dd HH:MM:SS" so later parsing is straightforward
+    format(as.Date(num_val, origin = "1899-12-30"), "%Y-%m-%d 00:00:00"),
+    x
+  )
+  out_chr
+}
+
+# Convert to character date strings
+admit_data <- admit_data_raw %>%
+  mutate(
+    prospect_dt_str = convert_excel_or_string(`Student entered Prospect journey`),
+    admitted_dt_str = convert_excel_or_string(`Student entered Admitted journey`)
+  )
+
+# Show a sample of the intermediate strings
+cat("Sample Prospect Date Strings:\n")
+print(head(admit_data$prospect_dt_str))
+cat("\nSample Admitted Date Strings:\n")
+print(head(admit_data$admitted_dt_str))
+
+# Now parse those strings into actual date-times. We use parse_date_time (lubridate)
+# so it can gracefully handle multiple ISO/date formats (e.g. "YYYY-mm-dd HH:MM:SS" or "YYYY-mm-dd").
+admit_data <- admit_data %>%
+  mutate(
+    prospect_date = parse_date_time(prospect_dt_str, orders = c("Y-m-d H:M:S", "Y-m-d")),
+    admitted_date = parse_date_time(admitted_dt_str,  orders = c("Y-m-d H:M:S", "Y-m-d"))
+  )
+
+# Check how many parsed successfully
+n_total <- nrow(admit_data)
+n_valid_prospect <- sum(!is.na(admit_data$prospect_date))
+n_valid_admitted <- sum(!is.na(admit_data$admitted_date))
+
+cat("✔️ Parsed", n_valid_prospect, "of", n_total, "prospect dates successfully.\n")
+cat("✔️ Parsed", n_valid_admitted, "of", n_total, "admitted dates successfully.\n")
+
+if (n_valid_prospect == 0) stop("❌ No valid prospect dates were parsed. Check the source formatting.")
+if (n_valid_admitted == 0) warning("⚠️ No valid admitted dates were parsed.")
+
+# Proceed with the timing analysis using valid prospect dates.
+student_timing <- admit_data %>%
+  filter(!is.na(prospect_date)) %>%
+  mutate(
+    prospect_month = as.integer(format(prospect_date, "%m")),
+    prospect_day   = weekdays(prospect_date, abbreviate = TRUE),
+    days_to_admit  = as.numeric(difftime(admitted_date, prospect_date, units = "days"))
+  )
+
+# Summarize entries by month
+monthly_patterns <- student_timing %>%
+  group_by(prospect_month) %>%
+  summarise(
+    count             = n(),
+    conversion_rate   = mean(!is.na(admitted_date), na.rm = TRUE),
+    avg_days_to_admit = mean(days_to_admit, na.rm = TRUE),
+    .groups           = "drop"
+  ) %>%
+  arrange(prospect_month)
+
+print(monthly_patterns)
+
+# Visualize monthly patterns, if there is data
+if(nrow(monthly_patterns) > 0 && any(monthly_patterns$count > 0)) {
+  max_count <- max(monthly_patterns$count, na.rm = TRUE)
+  p <- ggplot(monthly_patterns, aes(x = factor(prospect_month))) +
+    geom_col(aes(y = count), fill = "steelblue") +
+    scale_x_discrete(labels = month.abb) +
+    labs(title = "Prospect Journey Starts and Conversion Rate by Month",
+         x = "Month", y = "Number of Students") +
+    theme_minimal()
+  
+  if(nrow(monthly_patterns) > 1 && max_count > 0) {
+    p <- p +
+      geom_line(aes(y = conversion_rate * max_count, group = 1), color = "red") +
+      geom_point(aes(y = conversion_rate * max_count), color = "red", size = 2) +
+      scale_y_continuous(sec.axis = sec_axis(~ . / max_count, name = "Conversion Rate"))
+  }
+  
+  print(p)
+} else {
+  cat("⚠️ No valid monthly data available for plotting.\n")
+}
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Read raw data from the "Admit Data - 2023 to 2025" sheet
+admit_data_raw <- df_list[['Admit Data - 2023 to 2025']]
+
+# If the first row is header text, remove it.
+if(nrow(admit_data_raw) > 0) {
+  first_row_col4 <- as.character(admit_data_raw[1, 4])
+  if(first_row_col4 == 'Student entered Prospect journey') {
+    admit_data_raw <- admit_data_raw[-1, ]
+  }
+}
+
+# Assign standard column names (assumes exactly 5 columns)
+colnames(admit_data_raw) <- c('Student', 'Admit Term', 'Program/Major Code',
+                               'Student entered Prospect journey',
+                               'Student entered Admitted journey')
+
+# Helper function to convert either numeric (Excel serial) or string-based dates
+convert_excel_or_string <- function(x) {
+  # Try to interpret each element as numeric first; if that succeeds, convert from Excel serial.
+  suppressWarnings(num_val <- as.numeric(x)) 
+  # Where numeric conversion is not NA, convert using origin "1899-12-30"; otherwise leave as text.
+  out_chr <- ifelse(!is.na(num_val),
+                    format(as.Date(num_val, origin = '1899-12-30'), '%Y-%m-%d 00:00:00'),
+                    trimws(as.character(x)))
+  out_chr
+}
+
+# Convert the date columns to character strings
+admit_data <- admit_data_raw %>%
+  mutate(
+    prospect_dt_str = convert_excel_or_string(`Student entered Prospect journey`),
+    admitted_dt_str = convert_excel_or_string(`Student entered Admitted journey`)
+  )
+
+# (Optional) Print a few samples
+cat('Sample Prospect Date Strings:\n')
+print(head(admit_data$prospect_dt_str))
+cat('\nSample Admitted Date Strings:\n')
+print(head(admit_data$admitted_dt_str))
+
+# Parse the strings into date-time values using parse_date_time (allows multiple orders)
+admit_data <- admit_data %>%
+  mutate(
+    prospect_date = parse_date_time(prospect_dt_str, orders = c('Y-m-d H:M:S', 'Y-m-d')),
+    admitted_date = parse_date_time(admitted_dt_str, orders = c('Y-m-d H:M:S', 'Y-m-d'))
+  )
+
+# Report the parsing results
+n_total <- nrow(admit_data)
+n_valid_prospect <- sum(!is.na(admit_data$prospect_date))
+n_valid_admitted <- sum(!is.na(admit_data$admitted_date))
+cat('✔️ Parsed', n_valid_prospect, 'of', n_total, 'prospect dates successfully.\n')
+cat('✔️ Parsed', n_valid_admitted, 'of', n_total, 'admitted dates successfully.\n')
+if(n_valid_prospect == 0) stop('❌ No valid prospect dates were parsed. Check the source formatting.')
+
+# Create the student_timing dataset using only valid prospect dates.
+student_timing <- admit_data %>%
+  filter(!is.na(prospect_date)) %>%
+  mutate(
+    prospect_month = as.integer(format(prospect_date, '%m')),
+    prospect_day   = weekdays(prospect_date, abbreviate = TRUE),
+    days_to_admit  = as.numeric(difftime(admitted_date, prospect_date, units = 'days'))
+  )
+
+# Summarize entries by month.
+monthly_patterns <- student_timing %>%
+  group_by(prospect_month) %>%
+  summarise(
+    count = n(),
+    conversion_rate = mean(!is.na(admitted_date), na.rm = TRUE),
+    avg_days_to_admit = mean(days_to_admit, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(prospect_month)
+
+print(monthly_patterns)
+
+# Visualize monthly patterns if data is available.
+if(nrow(monthly_patterns) > 0 && any(monthly_patterns$count > 0)) {
+  max_count <- max(monthly_patterns$count, na.rm = TRUE)
+  p <- ggplot(monthly_patterns, aes(x = factor(prospect_month))) +
+    geom_col(aes(y = count), fill = 'steelblue') +
+    scale_x_discrete(labels = month.abb) +
+    labs(title = 'Prospect Journey Starts and Conversion Rate by Month',
+         x = 'Month', y = 'Number of Students') +
+    theme_minimal()
+  
+  if(nrow(monthly_patterns) > 1 && max_count > 0) {
+    p <- p +
+      geom_line(aes(y = conversion_rate * max_count, group = 1), color = 'red') +
+      geom_point(aes(y = conversion_rate * max_count), color = 'red', size = 2) +
+      scale_y_continuous(sec.axis = sec_axis(~./max_count, name = 'Conversion Rate'))
+  }
+  print(p)
+} else {
+  cat('⚠️ No valid monthly data available for plotting.\n')
+}
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(viridis)
+
+# Group by the column "Program/Major Code" using group_by_at() so that the character
+# string 'Program/Major Code' is interpreted as a column name.
+program_analysis <- student_timing %>%
+  group_by_at('Program/Major Code') %>%
+  summarise(
+    count = n(),
+    conversion_pct = mean(!is.na(admitted_date), na.rm = TRUE) * 100,
+    avg_days_to_admit = mean(days_to_admit, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(count))
+
+print(head(program_analysis, 10))
+
+# Visualize the top programs using the top 8.
+top_programs <- head(program_analysis, 8)
+ggplot(top_programs, aes(x = reorder(`Program/Major Code`, count), y = count, fill = avg_days_to_admit)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = 'Top Programs by Enrollment',
+       x = 'Program/Major',
+       y = 'Enrollment Count',
+       fill = 'Avg Days to Admit') +
+  theme_minimal() +
+  scale_fill_viridis_c(option = 'plasma')
+```
+
+```{r}
+# Analyze by 'Admit Term'
+term_analysis <- student_timing %>%
+  mutate(term_year = sub('\\(.*\\)', '', 'Admit Term')) %>%  # remove parenthetical content if present
+  group_by(term_year) %>%
+  summarise(
+    count = n(),
+    conversion_pct = mean(!is.na(admitted_date), na.rm = TRUE) * 100,
+    avg_days_to_admit = mean(days_to_admit, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(term_year)
+
+print(term_analysis)
+
+# Analyze seasonal patterns using prospect_month
+seasonal_analysis <- student_timing %>%
+  mutate(season = case_when(
+    prospect_month %in% c(12, 1, 2) ~ 'Winter',
+    prospect_month %in% c(3, 4, 5)  ~ 'Spring',
+    prospect_month %in% c(6, 7, 8)  ~ 'Summer',
+    prospect_month %in% c(9, 10, 11) ~ 'Fall',
+    TRUE ~ 'Unknown'
+  )) %>%
+  group_by(season) %>%
+  summarise(
+    count = n(),
+    conversion_pct = mean(!is.na(admitted_date), na.rm = TRUE) * 100,
+    avg_days_to_admit = mean(days_to_admit, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+print(seasonal_analysis)
+
+# Visualize seasonal analysis
+ggplot(seasonal_analysis, aes(x = reorder(season, count), y = count, fill = conversion_pct)) +
+  geom_col() +
+  labs(title = 'Prospect Journey Starts by Season',
+       subtitle = 'With Conversion Percentage',
+       x = 'Season',
+       y = 'Count',
+       fill = 'Conversion %') +
+  theme_minimal() +
+  coord_flip() +
+  scale_fill_gradient(low = 'lightblue', high = 'darkblue')
+```
+
+```{r}
+# Analyze the distribution of days between prospect and admitted dates.
+response_time <- student_timing %>%
+  filter(!is.na(admitted_date)) %>%
+  mutate(days_to_admit = as.numeric(difftime(admitted_date, prospect_date, units = 'days')))
+
+# Summarize response time statistics.
+response_summary <- response_time %>%
+  summarise(
+    median_days = median(days_to_admit, na.rm = TRUE),
+    mean_days = mean(days_to_admit, na.rm = TRUE),
+    min_days = min(days_to_admit, na.rm = TRUE),
+    max_days = max(days_to_admit, na.rm = TRUE)
+  )
+
+print(response_summary)
+
+# Visualize the distribution of response times.
+ggplot(response_time, aes(x = days_to_admit)) +
+  geom_histogram(binwidth = 7, fill = 'steelblue', color = 'white') +
+  geom_vline(aes(xintercept = median(days_to_admit, na.rm = TRUE)),
+             color = 'red', linetype = 'dashed', size = 1) +
+  labs(title = 'Distribution of Days Between Prospect and Admitted Journey Entry',
+       subtitle = paste('Median:', round(median(response_time$days_to_admit, na.rm = TRUE)), 'days'),
+       x = 'Days',
+       y = 'Count') +
+  theme_minimal() +
+  annotate('text', 
+           x = median(response_time$days_to_admit, na.rm = TRUE) + 20, 
+           y = max(hist(response_time$days_to_admit, plot = FALSE)$counts)/2,
+           label = paste('Median:', round(median(response_time$days_to_admit, na.rm = TRUE)), 'days'),
+           color = 'red')
+```
+
+

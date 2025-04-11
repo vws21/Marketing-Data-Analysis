@@ -31,6 +31,22 @@ This folder contains find.py.
   -  With metrics such as open rates, click-through rates, and read times, which emails are opened and/or engaged with the most, and in what ways? (topEmails.py)
   -  What are student’s preferences for timing, frequency, topic, length, etc., of emails? Is this preference different based on stage? (timingPref.py, topicPrev.py, lengthPref.py)
 
+#### Kavin Folder
+  This folder contains charts and Jupyter Notebook file to answer the following questions:
+  - What (in terms of each email that is sent, its topic, word count, etc.) did the “SCI Graduate Student” receive as they moved from Prospect to Matriculated?
+  - When are they receiving these communications (relative to when they first enter our email list, and relative to them progressing to a new status)?
+
+#### Hafsah Folder
+  This folder contains a R Markdown file to answer the following questions:
+  - Do they feature similar topics, have similar levels of personalization, similar calls to action in subject lines, sent at the same time of day, etc?
+  - What do the emails that are opened/engaged with the most/least have in common?
+  - What are trends which indicate likelihood of student engagement with emails? Stage, major, time of year, etc?
+
+#### Wenli Folder
+  This folder contain a Jupyter Notebook fileto answer the following questions:
+  - Can this data be delineated by program/major to find insights into what information is most interesting to which population?
+  - Which emails are opened and/or engaged with the least, and in what ways?
+
 ### Data Cleaning Folder
   This folder contains market_data_split.py which is how we used Python to clean our dataset. 
 
